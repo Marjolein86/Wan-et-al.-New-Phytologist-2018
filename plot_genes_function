@@ -1,0 +1,110 @@
+#===============================================================
+# FILE: drawProfiles.R
+# DESCRIPTION: Contains the function drawProfiles to plot timeseries data for a given gene --> to fit data of PMID: 30252144
+# AUTHOR: M. Droog
+# ORGANIZATION: PMI, University Utrecht
+# VERSION: 1.0
+# CREATED: 06/06/2019
+
+# required packages
+library(tidyverse)
+library(grid)
+library(data.table)
+
+# read in file with gene's locus name, symbol, and ful_name
+#agicommon <- fread("agicommon.txt")
+
+# source in dataframes of all_mean and all_SE from the "get_mean_and_se.R" script
+source('get_mean_and_se.R')
+# set labels
+
+labels <- c(rep("AIMY", 4), rep("C6", 4), rep("flg22", 4), rep("H2O", 4))
+timepoints <- c(0, 1, 6, 24)
+# =====================================================================================================================================================
+
+draw.Profiles <- function(agi, meanExpression = all_mean, stdErr = all_SE, treatmentsPlot = c("H2O","AIMY","C6","flg22"), useName = 1, agi_common = agicommon){
+    
+    # Arguments:
+    # agi = String e.g AT3G15500
+    # meanExpression = data.frame
+    # stdErr = data.fram
+    # treatmentsPlot = character vector e.g c(""H2O","AIMY","C6","flg22")
+    # preferred_agi_common = data.frame
+    
+    toplot_i <- c()
+    if ( "AIMY" %in% treatmentsPlot ){
+    	toplot_i <- c(toplot_i, 1:4)	
+    }
+    if ( "C6" %in% treatmentsPlot ){
+    	toplot_i <- c(toplot_i, 5:8)	
+    }
+    if ( "flg22" %in% treatmentsPlot ){
+    	toplot_i <- c(toplot_i, 9:12)	
+    }
+    if ( "H2O" %in% treatmentsPlot ){
+    	toplot_i <- c(toplot_i, 13:16)	
+    }
+    
+    plotTitle <- "";
+	commonName <- agi;
+	# Check preferred common name exists for agi, otherwise lookup name in TAIR annotation:
+	if ( useName ){
+		
+		if ( is.na( which(agi_common[,1] == agi)[1] ) ){
+			plotTitle <- agi;
+		}
+		else{
+			commonName <- as.character( agi_common[ which( agi_common[,1] == agi)[1], 2] );
+			plotTitle <- paste(agi,commonName, sep ="  ");
+		}
+		print (plotTitle)
+	}
+	else{
+		plotTitle <- agi;	
+	}
+	
+    columnNames <- c("AGI", "timepoints", "treatment", "MeanExp", "StdErr")
+	df2plot<-data.frame(agi, timepoints, as.character(labels[toplot_i]), as.numeric(meanExpression[agi,toplot_i]), as.numeric(stdErr[agi,toplot_i]) )
+	colnames( df2plot ) <- columnNames
+	#print (df2plot)
+	#plotTitle <- commonName;   		
+	
+	ggplot( data = df2plot, 
+	        aes(x = timepoints, y = MeanExp, group = AGI, linetype = treatment) ) + #
+	     
+         geom_errorbar(aes(ymin = MeanExp - StdErr, ymax = MeanExp + StdErr, color = factor(treatment)), width=0.2) + # add error bars (do so before geom_point so the points are on top of the error bars)
+	     geom_line(aes(color = factor(treatment))) + # join points with lines (specify this before geom_point, or the lines will be drawn over the shapes)
+	     geom_point(size=2, aes(color = factor(treatment))) + # add a scatterplot; constant size, shape/fill depends on lesion
+	     
+	     scale_linetype_manual(name="treatment",values=c("flg22"="solid", "H2O"="solid", "C6" = "solid", "AIMY" = "solid"))+
+             scale_colour_manual(name="treatment",values=c("flg22"="blue", "H2O"="green", "C6" = "orange", "AIMY" = "red"))+
+             
+	     scale_x_continuous("Time post treatment (h)", 
+	                        breaks=timepoints, 
+	                        labels = c("0", "1", "6", "24")) + # tick marks
+	     #scale_y_continuous("Log Expression", breaks=seq(-3, 3, by = 1)) + # rescale Y axis slightly
+	     scale_y_continuous("Normalized counts (log2)")+
+	     theme_bw() + # make the theme black-and-white rather than grey (do this before font changes, or it overrides them)
+		 
+		 ggtitle(plotTitle) +
+		 
+	     theme(
+	          axis.text=element_text(size=20),  
+	          plot.title = element_text(size=34), 
+	          axis.title.x = element_text(size=32),
+	          axis.title.y = element_text(size=32, angle=90),
+	          panel.grid.major = element_blank(), # switch off major gridlines
+	          panel.grid.minor = element_blank(), # switch off minor gridlines
+	          #legend.position = c(0.2,0.8), # manually position the legend (numbers being from 0,0 at bottom left of whole plot to 1,1 at top right)
+	          legend.title = element_blank(), # switch off the legend title
+	          #legend.text = element_text(size=12),
+	          legend.key.size = unit(1.5, "line"),
+	          legend.key = element_blank() # switch off the rectangle around symbols in the legend
+	     )
+        last_plot() + aes(group = interaction(AGI, treatment))	            
+}
+
+# =====================================================================================================================================================
+
+# Example plot
+draw.Profiles("AT1G01010", (all_mean), (all_SE), c("H2O","AIMY","C6","flg22"), 1, agicommon)
