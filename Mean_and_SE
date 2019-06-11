@@ -1,0 +1,148 @@
+#===============================================================
+# FILE: get_mean_and_se.R
+# DESCRIPTION: Creates two data frames of mean and SE values (of public available dataset*) required for the function drawProfiles to plot
+# 				     timeseries data for a given gene.
+# AUTHOR: M. Droog
+# ORGANIZATION: PMI, University Utrecht
+# *PMID: 30252144
+# *Comparing Arabidopsis receptor kinase and receptor protein-mediated immune signaling reveals BIK1-dependent differences.
+# *Wan et al., New Phytologist, 2018
+# VERSION: 1.0
+# CREATED: 27/05/2019
+
+# load packages
+library(data.table)
+library(tidyverse)
+library(DESeq2)
+
+
+##################### files with unnormalized counts data ##################### 
+#  Read all input files from specified folder (x) into a list
+merged_list <- lapply(filenames <- list.files(pattern = "RunId0195_LaneId", 
+                                              full.names = FALSE), fread)
+# Name columns & remove the '.txt. from the column names"
+for(i in 1:length(filenames)){
+  colnames(merged_list[[i]]) <- c("target_id", filenames[i])
+  colnames(merged_list[[i]]) <- gsub(".txt", "", colnames(merged_list[[i]]))}
+# Merge the list into one dataframe --> reduce function is masked if you open DESeq2 --> hence, add purrr::reduce()
+merged_file <- purrr::reduce(merged_list, full_join, by = "target_id") %>% 
+  remove_rownames 
+# make the gene names the rownames and delete its column
+rownames(merged_file) <- merged_file[,1]
+merged_file <- merged_file[,-1]
+
+
+##################### file to describes the data ##################### 
+# read in file that describes the data
+description <- fread("rnaseq description.txt")
+# the file contains mislabelling --> 36 is used twcice, while 38 isn't used --> authors stated 36=flg22/1hr & 38=flg22/6hr
+description[24,1]  = '38_RunId0195_LaneId3'
+# The file contains different terms for the unit of time hour: 'hr' and 'h'
+description$time <- gsub("hr", "", description$time)
+description$time <- gsub("h", "", description$time)
+description$time <- as.numeric(description$time) 
+
+
+##################### Normalize counts using DESeq2 #####################
+dds <- DESeqDataSetFromMatrix(countData = merged_file, colData = description, design = ~ 1)
+dds <- estimateSizeFactors(dds)
+sizeFactors(dds)
+normalized_counts <- counts(dds, normalized=TRUE)
+# add pseudogene and take the log2 (psuedocount is required in cases of value o)
+normalized_counts <- as.data.frame(log2(normalized_counts+1))
+
+
+##################### Prepare the normalized counts for tidyverse functions ##################### 
+# add row name that is the columnnames to the main dataframe so you can use it to sort by in the full_join function later
+normalized_counts <- rbind(files = colnames(normalized_counts), normalized_counts)
+#transpose the data so that you can use tidyverse commands on it later
+t_normalized_counts <- data.frame(stringsAsFactors = FALSE, t(normalized_counts))
+# combine the description to the t-merged_file
+t_normalized_counts <- full_join(description, t_normalized_counts, by = 'files')
+rownames(t_normalized_counts) <- t_normalized_counts[,1]
+t_normalized_counts <- t_normalized_counts[,-1]
+# Turn gene-level measurements into numeric values
+for(i in c(4:length(t_normalized_counts))) {
+  t_normalized_counts[,i] <- as.numeric(t_normalized_counts[,i])}
+
+
+##################### Create two data frames with either the mean or the standard error of the normalized counts  #####################
+# take the means of the quadruplicates that were taken per treatment and timepoint
+all_mean <- t_normalized_counts %>% 
+        group_by(treat, time) %>% 
+        summarise_all(funs(mean))
+# transpose all_mean, set stringsAsFactors to FALSE to prevent adding levels
+all_mean <- data.frame(stringsAsFactors = FALSE, t(all_mean))
+rownames <- rownames(all_mean)
+# There was only a '0h' timpeoint for the treatment H2O --> duplicate these values for the other treatments
+all_mean <- data.frame(stringsAsFactors = FALSE,
+                       all_mean,
+                      copy1 = all_mean$X10, 
+                      copy2 = all_mean$X10,
+                      copy3 = all_mean$X10)
+all_mean <- data.frame(stringsAsFactors = FALSE,
+                       all_mean$copy1, 
+                       all_mean$X1 ,
+                       all_mean$X2 ,
+                       all_mean$X3 , 
+                       all_mean$copy2 ,
+                       all_mean$X4 ,
+                       all_mean$X5 ,                        
+                       all_mean$X6 ,
+                       all_mean$copy3 ,
+                       all_mean$X7 ,  
+                       all_mean$X8 ,
+                       all_mean$X9 ,
+                       all_mean$X10 ,
+                       all_mean$X11 ,
+                       all_mean$X12 ,
+                       all_mean$X13)
+rownames(all_mean) <- rownames
+#colnames(t_all_mean) <- t_all_mean[1,]
+all_mean <- all_mean[-c(1:3),]
+# function to determine the standard error of the mean
+se <- function(x) sqrt(var(x)/length(x))
+# take the means of the quadruplicates that were taken per treatment and timepoint
+all_SE <- t_normalized_counts %>% 
+  group_by(treat, time) %>% 
+  summarise_all(funs(se))
+# transpose 
+all_SE <- data.frame(stringsAsFactors = FALSE, t(all_SE))
+# There was only a '0h' timpeoint for the treatment H2O --> duplicate these values for the other treatments
+all_SE <- data.frame(stringsAsFactors = FALSE,
+                     all_SE,
+                       copy1 = all_SE$X10, 
+                       copy2 = all_SE$X10,
+                       copy3 = all_SE$X10)
+all_SE <- data.frame(stringsAsFactors = FALSE,
+                     all_SE$copy1, 
+                       all_SE$X1 ,
+                       all_SE$X2 ,
+                       all_SE$X3 , 
+                       all_SE$copy2 ,
+                       all_SE$X4 ,
+                       all_SE$X5 ,                        
+                       all_SE$X6 ,
+                       all_SE$copy3 ,
+                       all_SE$X7 ,  
+                       all_SE$X8 ,
+                       all_SE$X9 ,
+                       all_SE$X10 ,
+                       all_SE$X11 ,
+                       all_SE$X12 ,
+                       all_SE$X13)
+rownames(all_SE) <- rownames
+# drop labels
+all_SE <- all_SE[-c(1:3),]
+
+
+##################### Remove what you don't need for script 'drawProfiles.R'  #####################
+rm(description)
+rm(merged_file)
+rm(merged_list)
+rm(filenames)
+rm(i)
+rm(se)
+rm(normalized_counts)
+rm(dds)
+rm(t_normalized_counts)
